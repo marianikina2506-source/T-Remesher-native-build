@@ -1,0 +1,5 @@
+
+Algorithm : SHA256
+Hash      : 2BE112735A45C7A1FA761A5BBAF4E9960A4E4E919CF85BB123632894EDD55146
+Path      : D:\a\T-Remesher-native-build\T-Remesher-native-build\dist\native\win64\quad_from_patches.exe
+
