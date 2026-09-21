@@ -1,0 +1,76 @@
+name: Build T-Remesher native density backend
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'patches/**'
+      - '.github/workflows/build-windows.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  windows-native:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout build kit
+        uses: actions/checkout@v4
+
+      - name: Checkout QuadWild Bi-MDF
+        uses: actions/checkout@v4
+        with:
+          repository: cgg-bern/quadwild-bimdf
+          path: upstream
+          submodules: recursive
+
+      - name: Apply T-Remesher density patch
+        shell: pwsh
+        run: |
+          cd upstream
+          git apply "$env:GITHUB_WORKSPACE/patches/quad_from_patches_native_density.patch"
+
+      - name: Configure
+        shell: pwsh
+        run: |
+          cmake -S upstream -B upstream/build -A x64 -DSATSUMA_ENABLE_BLOSSOM5=0 -DQUADRETOPOLOGY_WITH_GUROBI=OFF
+
+      - name: Build quad_from_patches
+        shell: pwsh
+        run: |
+          cmake --build upstream/build --config Release --target quad_from_patches --parallel 4
+
+      - name: Collect runtime
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist/native/win64 | Out-Null
+          $exe = Get-ChildItem -Path upstream/build -Recurse -Filter quad_from_patches.exe | Select-Object -First 1
+          if (-not $exe) { throw "quad_from_patches.exe was not produced" }
+          Copy-Item $exe.FullName dist/native/win64/quad_from_patches.exe
+
+          Get-ChildItem -Path upstream/build -Recurse -Filter *.dll | ForEach-Object {
+            Copy-Item $_.FullName (Join-Path dist/native/win64 $_.Name) -Force
+          }
+
+          Get-FileHash dist/native/win64/quad_from_patches.exe -Algorithm SHA256 |
+            Format-List | Out-File dist/native/win64/SHA256.txt
+
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: t-remesher-native-win64
+          path: dist/native/win64/**
+
+      - name: Commit built backend to repository
+        if: github.ref == 'refs/heads/main'
+        shell: pwsh
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -f dist/native/win64
+          if (git diff --cached --quiet) {
+            Write-Host "No binary changes to commit"
+          } else {
+            git commit -m "Build T-Remesher native density backend"
+            git push
+          }
