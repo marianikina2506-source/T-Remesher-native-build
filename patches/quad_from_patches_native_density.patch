@@ -1,0 +1,88 @@
+diff --git a/components/quad_from_patches/main.cpp b/components/quad_from_patches/main.cpp
+index 24e6ce4..0000000 100644
+--- a/components/quad_from_patches/main.cpp
++++ b/components/quad_from_patches/main.cpp
+@@ -39,6 +39,9 @@
+ #include <quadretopology/qr_eval_quantization_json.h>
+ 
+ #include <iostream>
++#include <fstream>
++#include <algorithm>
++#include <limits>
+ 
+ #ifdef _WIN32
+ #  include <windows.h>
+@@ -76,10 +79,10 @@ int actual_main(int argc, char *argv[])
+ //    parameters.repeatLosingConstraintsAlign = true;
+ //    parameters.hardParityConstraint = true; //Flag to choose if use hard constraints or not
+-    if(argc<2 || argc > 5)
++    if(argc<2 || argc > 6)
+     {
+-        std::cerr << "usage: " << argv[0] << " <input.obj> [num] [setup.txt] [out_stats.json]"
++        std::cerr << "usage: " << argv[0] << " <input.obj> [num] [setup.txt] [out_stats.json] [density.txt]"
+                   << std::endl;
+         exit(1);
+     }
+@@ -101,6 +104,10 @@ int actual_main(int argc, char *argv[])
+     if (argc>4) {
+         json_filename = argv[4];
+     }
++    std::string densityFilename = "";
++    if (argc>5) {
++        densityFilename = argv[5];
++    }
+     QuadRetopology::Parameters parameters;
+     float scaleFactor;
+     int fixedChartClusters;
+@@ -174,7 +181,48 @@ int actual_main(int argc, char *argv[])
+     QuadRetopology::internal::updateAllMeshAttributes(trimesh);
+     double EdgeSize=avgEdge(trimesh)*scaleFactor;
+     std::cout<<"Edge Size "<<EdgeSize<<std::endl;
+-    const std::vector<double> edgeFactor(trimeshPartitions.size(), EdgeSize);
++    std::vector<double> edgeFactor(trimeshPartitions.size(), EdgeSize);
++
++    // T-Remesher native adaptive density.
++    // File format:
++    //   <patch_count>
++    //   <multiplier patch 0>
++    //   <multiplier patch 1>
++    //   ...
++    // Multiplier < 1.0 requests smaller target edges (more quads).
++    // Multiplier > 1.0 requests larger target edges (fewer quads).
++    if (!densityFilename.empty())
++    {
++        std::ifstream densityInput(densityFilename.c_str());
++        if (!densityInput.is_open())
++        {
++            std::cerr << "ERROR LOADING DENSITY FILE " << densityFilename << std::endl;
++            return 2;
++        }
++
++        size_t densityCount = 0;
++        densityInput >> densityCount;
++        if (densityCount != edgeFactor.size())
++        {
++            std::cerr << "DENSITY PATCH COUNT MISMATCH: file=" << densityCount
++                      << " mesh=" << edgeFactor.size() << std::endl;
++            return 3;
++        }
++
++        double minMultiplier = std::numeric_limits<double>::max();
++        double maxMultiplier = 0.0;
++        for (size_t i = 0; i < densityCount; ++i)
++        {
++            double multiplier = 1.0;
++            if (!(densityInput >> multiplier))
++            {
++                std::cerr << "INVALID DENSITY VALUE AT PATCH " << i << std::endl;
++                return 4;
++            }
++            multiplier = std::max(0.10, std::min(4.00, multiplier));
++            edgeFactor[i] = EdgeSize * multiplier;
++            minMultiplier = std::min(minMultiplier, multiplier);
++            maxMultiplier = std::max(maxMultiplier, multiplier);
++        }
++        std::cout << "Native density: " << densityCount << " patches, multiplier range "
++                  << minMultiplier << " .. " << maxMultiplier << std::endl;
++    }
+     auto qfp_result = qfp::quadrangulationFromPatches(trimesh, trimeshPartitions, trimeshCorners, edgeFactor, parameters, fixedChartClusters, quadmesh, quadmeshPartitions, quadmeshCorners, ilpResult);
