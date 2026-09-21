@@ -5,6 +5,7 @@ on:
   push:
     paths:
       - 'patches/**'
+      - 'scripts/**'
       - '.github/workflows/build-windows.yml'
 
 permissions:
@@ -27,8 +28,7 @@ jobs:
       - name: Apply T-Remesher density patch
         shell: pwsh
         run: |
-          cd upstream
-          git apply "$env:GITHUB_WORKSPACE/patches/quad_from_patches_native_density.patch"
+          python scripts/apply_density_patch.py
 
       - name: Configure
         shell: pwsh
