@@ -1,4 +1,4 @@
-name: Build T-Remesher native density backend
+name: Build T-Remesher native tools
 
 on:
   workflow_dispatch:
@@ -25,35 +25,42 @@ jobs:
           path: upstream
           submodules: recursive
 
-      - name: Apply T-Remesher density patch
+      - name: Apply T-Remesher patches
         shell: pwsh
         run: |
           python scripts/apply_density_patch.py
+          python scripts/apply_trace_params_patch.py
 
       - name: Configure
         shell: pwsh
         run: |
           cmake -S upstream -B upstream/build -A x64 -DSATSUMA_ENABLE_BLOSSOM5=0 -DQUADRETOPOLOGY_WITH_GUROBI=OFF
 
-      - name: Build quad_from_patches
+      - name: Build native tools
         shell: pwsh
         run: |
           cmake --build upstream/build --config Release --target quad_from_patches --parallel 4
+          cmake --build upstream/build --config Release --target cli_trace --parallel 4
 
       - name: Collect runtime
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path dist/native/win64 | Out-Null
-          $exe = Get-ChildItem -Path upstream/build -Recurse -Filter quad_from_patches.exe | Select-Object -First 1
-          if (-not $exe) { throw "quad_from_patches.exe was not produced" }
-          Copy-Item $exe.FullName dist/native/win64/quad_from_patches.exe
+          $quad = Get-ChildItem -Path upstream/build -Recurse -Filter quad_from_patches.exe | Select-Object -First 1
+          $trace = Get-ChildItem -Path upstream/build -Recurse -Filter cli_trace.exe | Select-Object -First 1
+          if (-not $quad) { throw "quad_from_patches.exe was not produced" }
+          if (-not $trace) { throw "cli_trace.exe was not produced" }
+          Copy-Item $quad.FullName dist/native/win64/quad_from_patches.exe
+          Copy-Item $trace.FullName dist/native/win64/cli_trace.exe
 
           Get-ChildItem -Path upstream/build -Recurse -Filter *.dll | ForEach-Object {
             Copy-Item $_.FullName (Join-Path dist/native/win64 $_.Name) -Force
           }
 
-          Get-FileHash dist/native/win64/quad_from_patches.exe -Algorithm SHA256 |
-            Format-List | Out-File dist/native/win64/SHA256.txt
+          @(
+            Get-FileHash dist/native/win64/quad_from_patches.exe -Algorithm SHA256
+            Get-FileHash dist/native/win64/cli_trace.exe -Algorithm SHA256
+          ) | Format-Table -AutoSize | Out-File dist/native/win64/SHA256.txt
 
       - name: Upload binary artifact
         uses: actions/upload-artifact@v4
@@ -71,6 +78,6 @@ jobs:
           if (git diff --cached --quiet) {
             Write-Host "No binary changes to commit"
           } else {
-            git commit -m "Build T-Remesher native density backend"
+            git commit -m "Build T-Remesher native tools"
             git push
           }
